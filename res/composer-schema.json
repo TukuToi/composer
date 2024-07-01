@@ -807,6 +807,10 @@
                     "type": "array",
                     "description": "This is an array of paths that contain classes to be included in the class-map generation process."
                 },
+                "base-root": {
+                    "type": "string",
+                    "description": "Allows to customize the source code root path."
+                }
                 "files": {
                     "type": "array",
                     "description": "This is an array of files that are always required on every request."
