@@ -1218,6 +1218,7 @@ INITIALIZER;
     protected function parseAutoloadsType(array $packageMap, string $type, RootPackageInterface $rootPackage)
     {
         $autoloads = [];
+        $baseRoot = $this->parseBaseRoot($rootPackage);
 
         foreach ($packageMap as $item) {
             [$package, $installPath] = $item;
@@ -1242,6 +1243,9 @@ INITIALIZER;
 
             foreach ($autoload[$type] as $namespace => $paths) {
                 foreach ((array) $paths as $path) {
+                    if ($baseRoot && $package === $rootPackage) {
+                        $path = $baseRoot . '/' . $path;
+                    }
                     if (($type === 'files' || $type === 'classmap' || $type === 'exclude-from-classmap') && $package->getTargetDir() && !Filesystem::isReadable($installPath.'/'.$path)) {
                         // remove target-dir from file paths of the root package
                         if ($package === $rootPackage) {
@@ -1363,6 +1367,18 @@ INITIALIZER;
                 return false;
             }
         );
+    }
+
+    /**
+     * Parses the base-root from the root package autoload configuration.
+     *
+     * @param RootPackageInterface $rootPackage
+     * @return string|null
+     */
+    private function parseBaseRoot(RootPackageInterface $rootPackage): ?string
+    {
+        $autoload = $rootPackage->getAutoload();
+        return $autoload['base-root'] ?? null;
     }
 
     /**
