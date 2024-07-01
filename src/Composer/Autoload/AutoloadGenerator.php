@@ -398,6 +398,17 @@ return array(
 EOF;
         foreach ($classMap->getMap() as $className => $path) {
             $pathCode = $this->getPathCode($filesystem, $basePath, $vendorPath, $path).",\n";
+
+			/**
+			 * Ensure the `source-path-replace` is respected
+			 *
+			 * The `source-path-replace` is an array with two values: path to replace, and replace with.
+			 * We are assuming the user knows what they are doing and do not further validate its values.
+			 * Config already ensures it is an array of strings.
+			 */
+			$source_path_replace = $config->get('source-path-replace');
+			$pathCode = str_replace( $source_path_replace[0], $source_path_replace[1], $pathCode );
+
             $classmapFile .= '    '.var_export($className, true).' => '.$pathCode;
         }
         $classmapFile .= ");\n";
@@ -440,7 +451,7 @@ EOF;
         } elseif (file_exists($includeFilesFilePath)) {
             unlink($includeFilesFilePath);
         }
-        $filesystem->filePutContentsIfModified($targetDir.'/autoload_static.php', $this->getStaticFile($suffix, $targetDir, $vendorPath, $basePath));
+        $filesystem->filePutContentsIfModified($targetDir.'/autoload_static.php', $this->getStaticFile($suffix, $targetDir, $vendorPath, $basePath, $config->get('source-path-replace')));
         $checkPlatform = $config->get('platform-check') !== false && !($this->platformRequirementFilter instanceof IgnoreAllPlatformRequirementFilter);
         $platformCheckContent = null;
         if ($checkPlatform) {
@@ -1115,9 +1126,10 @@ FOOTER;
     /**
      * @param string $vendorPath input for findShortestPathCode
      * @param string $basePath input for findShortestPathCode
+	 * @param array $source_path_replace An array with two values: Source path to replace, and Replace with. ['to-replace/to-replace','replace-with'].
      * @return string
      */
-    protected function getStaticFile(string $suffix, string $targetDir, string $vendorPath, string $basePath)
+    protected function getStaticFile(string $suffix, string $targetDir, string $vendorPath, string $basePath, array $source_path_replace = array())
     {
         $file = <<<HEADER
 <?php
@@ -1192,11 +1204,28 @@ HEADER;
             );
             $value = ltrim(Preg::replace('/^ */m', '    $0$0', $value));
 
+			/**
+			 * The classmap is special, it hardcodes source file paths.
+			 * Replace the bad paths in it according to `source-path-replace`
+			 * 
+			 * The assumption is that for each directory separator, we can also remove a level parent directory notation.
+			 */
+			if ( 'classMap' === $prop ) {
+				if ( ! empty ( $source_path_replace ) ) {
+
+					$_levels = substr_count($source_path_replace[0], '/');
+					$_to_replace = str_repeat( '/..', $_levels ) . '\' . \'/' . $source_path_replace[1];
+					$_replace_with = '\' . \'/' . $source_path_replace[1];
+					$value = str_replace( $_to_replace, $_replace_with, $value);
+				}
+			
+			}
             $file .= sprintf("    public static $%s = %s;\n\n", $prop, $value);
             if ('files' !== $prop) {
                 $initializer .= "            \$loader->$prop = ComposerStaticInit$suffix::\$$prop;\n";
             }
         }
+
 
         return $file . <<<INITIALIZER
     public static function getInitializer(ClassLoader \$loader)
@@ -1218,7 +1247,6 @@ INITIALIZER;
     protected function parseAutoloadsType(array $packageMap, string $type, RootPackageInterface $rootPackage)
     {
         $autoloads = [];
-        $baseRoot = $this->parseBaseRoot($rootPackage);
 
         foreach ($packageMap as $item) {
             [$package, $installPath] = $item;
@@ -1243,9 +1271,6 @@ INITIALIZER;
 
             foreach ($autoload[$type] as $namespace => $paths) {
                 foreach ((array) $paths as $path) {
-                    if ($baseRoot && $package === $rootPackage) {
-                        $path = $baseRoot . '/' . $path;
-                    }
                     if (($type === 'files' || $type === 'classmap' || $type === 'exclude-from-classmap') && $package->getTargetDir() && !Filesystem::isReadable($installPath.'/'.$path)) {
                         // remove target-dir from file paths of the root package
                         if ($package === $rootPackage) {
